@@ -7,33 +7,40 @@ from google.genai import types
 # Configuração do cliente Gemini
 client = genai.Client()
 
-def limpar_comentario(texto):
+def limpar_comentarios_instagram(texto_bruto):
     """
-    Função para remover padrões visuais de metadados do Instagram 
-    (ex: '79 sem2 curtidasResponder', '1 semResponder', etc.)
+    Pipeline de Regex para higienizar dados brutos ou exportações web,
+    removendo ruídos de interface e metadados do Instagram.
     """
-    # Remove o padrão de tempo, curtidas e botão responder no final do texto
-    texto_limpo = re.sub(r'\d+\s*sem(?:\d+\s*curtidas)?Responder', '', texto)
-    # Remove quebras de linha e espaços duplos
-    texto_limpo = texto_limpo.strip()
-    return texto_limpo
-
-def analisar_comentarios_instagram(comentarios):
-    # Aplica a limpeza em cada comentário e remove linhas vazias
-    comentarios_limpos = [
-        limpar_comentario(c) for c in comentarios if limpar_comentario(c)
-    ]
-
-    prompt = f"""
-    Você é um Analista de Comportamento e Estrategista de Comunidades com foco em projetos filosóficos e sociais.
-    Analise a lista de comentários abaixo extraídos do Instagram da Pequena Tribo.
-    Retorne estritamente um JSON contendo:
-    1. 'distribuicao_intencao' (percentual ou estimativa entre: 'Elogio Passivo', 'Conexão Filosófica' e 'Intenção Ativa')
-    2. 'tons_predominantes' (lista com os tons emocionais/filosóficos mais fortes encontrados, ex: Devocional/Gratidão, Acolhimento, Inspiração)
-    3. 'nivel_profundidade' (análise se os comentários foram majoritariamente superficiais/emojis ou elaborados/reflexivos)
-    4. 'insights_para_equipe' (uma frase estratégica avaliando o termômetro e orientando a equipe)
+    padroes_ruido = r"(Responder|Ver respostas.*|há \d+ [dhsm]|Curtir|\d+ curtidas)"
     
-    Comentários: {json.dumps(comentarios_limpos, ensure_ascii=False)}
+    linhas = texto_bruto.strip().split("\n")
+    comentarios_limpos = []
+    
+    for linha in linhas:
+        linha_limpa = re.sub(padroes_ruido, "", linha).strip()
+        if len(linha_limpa) > 3:  
+            comentarios_limpos.append(linha_limpa)
+            
+    return comentarios_limpos
+
+def analisar_post_com_link(url_post, comentarios_limpos):
+    """
+    Envia o link do post e a lista tratada para o modelo Gemini estruturar 
+    o relatório gerencial em JSON, preservando a origem da URL.
+    """
+    prompt = f"""
+    Você é um Analista de Comportamento e Estrategista de Comunidades com foco em projetos sociais e filosóficos (Seva / Vedanta).
+    Analise a lista de comentários abaixo extraídos da postagem da Pequena Tribo através do link: {url_post}
+    
+    Retorne estritamente um JSON contendo:
+    1. 'url_analisada' (o link do post fornecido)
+    2. 'distribuicao_intencao' (percentual ou estimativa entre: 'Elogio Passivo', 'Conexão Filosófica' e 'Intenção Ativa')
+    3. 'tons_predominantes' (lista com os tons emocionais/filosóficos mais fortes encontrados)
+    4. 'nivel_profundidade' (análise se os comentários foram majoritariamente superficiais ou reflexivos)
+    5. 'insights_para_equipe' (uma frase estratégica avaliando o termômetro e orientando a equipe)
+    
+    Comentários do post: {json.dumps(comentarios_limpos, ensure_ascii=False)}
     """
 
     response = client.models.generate_content(
@@ -46,25 +53,33 @@ def analisar_comentarios_instagram(comentarios):
     
     return response.text
 
-# Dados brutos copiados do Instagram
-comentarios_brutos = [
-    "Um projeto do coração. ❤️79 sem2 curtidasResponder",
-    "Que Isvara continue abençoando este belíssimo projeto🙌que as crianças bem direcionadas no hoje, sejam adultos inteiros e fraternos no amanhã 🙌❤️79 sem2 curtidasResponder",
-    "Muito lindo esse projeto, dando uma educação saudável para essas crianças 🙌🙌❤️79 sem2 curtidasResponder",
-    "Que lindeza! 🙏🏻🌷🧘🏻‍♀️79 sem2 curtidasResponder",
-    "Um trabalho lindo de ver.🙏🏽79 sem2 curtidasResponder",
-    "Projeto maravilhoso, que continue crescendo e ajudando muitas crianças ❤️79 sem2 curtidasResponder",
-    "Esse projeto é uma linda manifestação de amor e dedicação!💖79 sem2 curtidasResponder",
-    "Um projeto que olha as crianças de um jeito diferente. O respeito é a base para estas crianças irem para o mundo.79 sem2 curtidasResponder"
-]
+def salvar_relatorio_markdown(resultado_json, nome_arquivo="Relatorio_Pequena_Tribo.md"):
+    """
+    Salva o resultado da IA automaticamente em um arquivo Markdown (.md) estruturado.
+    """
+    conteudo_md = f"# Relatório Executivo - Pequena Tribo (Seva)\n\n```json\n{resultado_json}\n```"
+    with open(nome_arquivo, "w", encoding="utf-8") as f:
+        f.write(conteudo_md)
+    print(f"\nArquivo '{nome_arquivo}' gerado e salvo com sucesso!")
 
 if __name__ == "__main__":
-    print("Analisando intenções, tons e profundidade da comunidade...")
-    resultado = analisar_comentarios_instagram(comentarios_brutos)
-    print("\n--- Relatório Estratégico da Comunidade ---")
+    # URL do post que serve como referência e rastreabilidade para a análise
+    url_alvo = "https://www.instagram.com/p/exemplo_pequena_tribo/"
+    
+    # Bloco bruto de comentários coletados do post correspondente à URL
+    bloco_brutos = """
+    Um projeto do coração. ❤️79 sem2 curtidasResponder
+    Que Isvara continue abençoando este belíssimo projeto🙌que as crianças bem direcionadas no hoje, sejam adultos inteiros e fraternos no amanhã 🙌❤️79 sem2 curtidasResponder
+    """
+    
+    print(f"1. Processando link da postagem: {url_alvo}")
+    comentarios_tratados = limpar_comentarios_instagram(bloco_brutos)
+    
+    print("2. Executando pipeline de limpeza e análise com Gemini (2.5-flash)...")
+    resultado = analisar_post_com_link(url_alvo, comentarios_tratados)
+    
+    print("\n--- Relatório Estratégico Vinculado ao Link ---")
     print(resultado)
-
-    # Salva o relatório formatado em um arquivo local
-    with open("Relatorio_Pequena_Tribo.md", "w", encoding="utf-8") as f:
-        f.write(resultado)
-    print("\nArquivo 'Relatorio_Pequena_Tribo.md' gerado com sucesso!")
+    
+    print("3. Persistindo relatório em Markdown...")
+    salvar_relatorio_markdown(resultado)
